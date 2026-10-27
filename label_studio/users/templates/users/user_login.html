@@ -19,4 +19,17 @@
     <p><button type="submit" aria-label="Log In" class="lsf-button-ls lsf-button-ls_look_primary">Log in</button></p>
   </form>
 
+  {% comment %} --- TDW OIDC (begin): Cognito SSO button --- {% endcomment %}
+  {% if tdw_oidc_enabled %}
+    <p style="text-align:center; color:#6b7280; margin:14px 0;">or</p>
+    <p>
+      <a href="/oidc/authenticate/"
+         class="lsf-button-ls lsf-button-ls_look_primary"
+         style="display:block; text-align:center; text-decoration:none;">
+        Sign in with SSO
+      </a>
+    </p>
+  {% endif %}
+  {% comment %} --- TDW OIDC (end) --- {% endcomment %}
+
 {% endblock %}

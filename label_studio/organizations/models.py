@@ -38,6 +38,21 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
         'If NULL, the member is not considered deleted.',
     )
 
+    # --- TDW OIDC (begin): Postgres-backed role (synced from Cognito groups) ---
+    # Community Label Studio has no native per-member role; this adds one so
+    # Cognito groups map to a meaningful role. Source of truth is Cognito; this
+    # column is (re)synced on each OIDC login and editable via /tdw/roles/.
+    from core.tdw_roles import ROLE_CHOICES as _TDW_ROLE_CHOICES, DEFAULT_ROLE as _TDW_DEFAULT_ROLE
+
+    role = models.CharField(
+        _('tdw role'),
+        max_length=32,
+        choices=_TDW_ROLE_CHOICES,
+        default=_TDW_DEFAULT_ROLE,
+        help_text='TDW role (owner/manager/reviewer/annotator), synced from Cognito groups.',
+    )
+    # --- TDW OIDC (end) ---
+
     # objects = OrganizationMemberQuerySet.as_manager()
 
     @classmethod

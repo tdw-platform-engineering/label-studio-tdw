@@ -112,6 +112,16 @@ urlpatterns = [
     path('docs/api/schema/yaml/', SpectacularYAMLAPIView.as_view(), name='schema-yaml'),
 ]
 
+# --- TDW OIDC (begin): Cognito SSO routes + mini roles admin page ---
+if getattr(settings, 'TDW_OIDC_ENABLED', False):
+    from users.tdw_roles_view import tdw_roles_view
+
+    urlpatterns += [
+        path('oidc/', include('mozilla_django_oidc.urls')),
+        path('tdw/roles/', tdw_roles_view, name='tdw-roles'),
+    ]
+# --- TDW OIDC (end) ---
+
 if settings.DEBUG:
     try:
         import debug_toolbar

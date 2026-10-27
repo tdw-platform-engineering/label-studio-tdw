@@ -350,6 +350,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.settings',
+                'core.tdw_context.tdw_context',  # TDW OIDC: exposes tdw_oidc_enabled
             ],
             'builtins': ['django.templatetags.i18n'],
         },
@@ -942,3 +943,51 @@ FSM_INITIALIZATION_TRANSITION_NAME = 'fsm.utils._get_initialization_transition_n
 # Used for async migrations. In LSE this is set to a real queue name, including here so we
 # can use settings.SERVICE_QUEUE_NAME in async migrations in LSO
 SERVICE_QUEUE_NAME = get_env('SERVICE_QUEUE_NAME', 'default')
+
+
+# ============================================================================
+# --- TDW OIDC (begin): AWS Cognito single sign-on ---------------------------
+# ============================================================================
+# Native Cognito OIDC for the TDW fork. ADDITIVE and FEATURE-FLAGGED: when
+# TDW_OIDC_ENABLED is not "true" nothing below is wired and the app behaves
+# exactly like upstream. All values come from env (nothing baked in). The OIDC
+# endpoints are DERIVED from the Cognito hosted-UI domain so only OIDC_OP_DOMAIN
+# needs to be configured. See README.tdw.md / PATCHES.md.
+import json as _tdw_json
+
+TDW_OIDC_ENABLED = get_bool_env('TDW_OIDC_ENABLED', False)
+
+if TDW_OIDC_ENABLED:
+    AUTHENTICATION_BACKENDS = list(AUTHENTICATION_BACKENDS) + [
+        'core.auth.tdw_oidc.TDWCognitoOIDCBackend',
+    ]
+
+    OIDC_RP_CLIENT_ID = get_env('OIDC_RP_CLIENT_ID', '')
+    OIDC_RP_CLIENT_SECRET = get_env('OIDC_RP_CLIENT_SECRET', '')
+    OIDC_RP_SIGN_ALGO = get_env('OIDC_RP_SIGN_ALGO', 'RS256')
+
+    # e.g. dev-spectrum-platform.auth.us-east-1.amazoncognito.com
+    OIDC_OP_DOMAIN = get_env('OIDC_OP_DOMAIN', '').replace('https://', '').strip('/')
+    OIDC_OP_AUTHORIZATION_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/oauth2/authorize'
+    OIDC_OP_TOKEN_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/oauth2/token'
+    OIDC_OP_USER_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/oauth2/userInfo'
+    OIDC_OP_JWKS_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/.well-known/jwks.json'
+
+    OIDC_RP_SCOPES = get_env('OIDC_RP_SCOPES', 'openid email profile')
+    LOGIN_REDIRECT_URL = '/'
+    LOGOUT_REDIRECT_URL = '/'
+    OIDC_STORE_ID_TOKEN = True
+
+    TDW_COGNITO_REGION = get_env('TDW_COGNITO_REGION', get_env('AWS_DEFAULT_REGION', 'us-east-1'))
+    TDW_COGNITO_USER_POOL_ID = get_env('TDW_COGNITO_USER_POOL_ID', '')
+
+    # cognito:groups -> TDW role; JSON object, highest-privilege group wins.
+    try:
+        TDW_OIDC_GROUP_ROLE_MAP = _tdw_json.loads(get_env('TDW_OIDC_GROUP_ROLE_MAP', '{}') or '{}')
+    except Exception:
+        TDW_OIDC_GROUP_ROLE_MAP = {}
+
+    TDW_OIDC_DEFAULT_ORG_TITLE = get_env('TDW_OIDC_DEFAULT_ORG_TITLE', 'TDW')
+# ============================================================================
+# --- TDW OIDC (end) ---------------------------------------------------------
+# ============================================================================
