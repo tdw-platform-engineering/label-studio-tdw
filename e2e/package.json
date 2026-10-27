@@ -1,0 +1,12 @@
+{
+  "name": "label-studio-tdw-e2e",
+  "private": true,
+  "description": "TDW end-to-end Playwright tests for a DEPLOYED label-studio-tdw (Cognito SSO).",
+  "scripts": {
+    "test": "playwright test",
+    "install-browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
