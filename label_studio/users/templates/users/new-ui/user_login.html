@@ -38,6 +38,16 @@
       </div>
       <button type="submit" aria-label="Log In" class="login-button">Log in</button>
     </form>
+
+    {% comment %} --- TDW OIDC (begin): Cognito SSO button --- {% endcomment %}
+    {% if tdw_oidc_enabled %}
+      <p style="text-align:center; color:#6b7280; margin:14px 0;">or</p>
+      <a href="/oidc/authenticate/" class="login-button"
+         style="display:block; text-align:center; text-decoration:none; box-sizing:border-box;">
+        Sign in with SSO
+      </a>
+    {% endif %}
+    {% comment %} --- TDW OIDC (end) --- {% endcomment %}
   </div>
   {% if not settings.DISABLE_SIGNUP_WITHOUT_LINK %}
   <div class="text-wrapper">

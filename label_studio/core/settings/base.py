@@ -987,6 +987,12 @@ if TDW_OIDC_ENABLED:
     except Exception:
         TDW_OIDC_GROUP_ROLE_MAP = {}
 
+    # Behind the ALB (TLS terminated at the LB, forwarded to the container as
+    # http) Django must honor X-Forwarded-Proto so OIDC builds https callback
+    # URLs that match the Cognito app-client (else redirect_uri mismatch).
+    USE_X_FORWARDED_HOST = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
     TDW_OIDC_DEFAULT_ORG_TITLE = get_env('TDW_OIDC_DEFAULT_ORG_TITLE', 'TDW')
 # ============================================================================
 # --- TDW OIDC (end) ---------------------------------------------------------
