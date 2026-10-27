@@ -23,5 +23,9 @@ RUN /label-studio/.venv/bin/pip install --no-cache-dir "mozilla-django-oidc>=4.0
 # command, login template, context processor.) Nothing else in the image changes.
 COPY label_studio/ /label-studio/label_studio/
 
+# TDW seed drop-in: runs on app boot after upstream's 30-run-db-migrations.sh.
+COPY deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh /label-studio/deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh
+RUN chmod +x /label-studio/deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh
+
 # Keep upstream's ENTRYPOINT/CMD/WORKDIR/USER. The migrate stage + runtime run
 # the normal Label Studio bootstrap, which applies our migration 0007 too.
