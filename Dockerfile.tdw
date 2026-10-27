@@ -1,0 +1,27 @@
+# Dockerfile.tdw — FAST overlay build for the TDW Label Studio fork.
+#
+# We change ONLY Python backend files (the Cognito OIDC patch) — NO frontend/web
+# changes. So instead of rebuilding Label Studio from source (node/NX frontend +
+# poetry compiling C extensions on Alpine ARM = 15-30 min), we layer our patched
+# files onto the already-built upstream image. Build time: seconds.
+#
+# BASE_IMAGE defaults to a mirror in the client's OWN ECR (populated once from
+# docker.io/heartexlabs/label-studio:<ver>) so in-VPC CodeBuild doesn't depend on
+# Docker Hub (rate limits) — override per client/env. The upstream tag MUST match
+# the branch base (PATCHES.md records it: currently 1.23.2).
+ARG BASE_IMAGE=heartexlabs/label-studio:1.23.2
+FROM ${BASE_IMAGE}
+
+# The upstream image runs Poetry; its venv is at /label-studio/.venv and the app
+# package at /label-studio/label_studio. Install our one added dependency into
+# the SAME venv so the app imports it.
+USER root
+RUN /label-studio/.venv/bin/pip install --no-cache-dir "mozilla-django-oidc>=4.0.0,<5.0.0"
+
+# Overlay our patched backend files on top of the upstream app. (Backend-only:
+# settings, OIDC backend, role model + migration, /tdw/roles view+template, seed
+# command, login template, context processor.) Nothing else in the image changes.
+COPY label_studio/ /label-studio/label_studio/
+
+# Keep upstream's ENTRYPOINT/CMD/WORKDIR/USER. The migrate stage + runtime run
+# the normal Label Studio bootstrap, which applies our migration 0007 too.
