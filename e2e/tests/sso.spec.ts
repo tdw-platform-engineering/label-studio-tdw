@@ -49,10 +49,15 @@ test('full Cognito login reaches Label Studio', async ({ page }) => {
 
   await page.goto('/oidc/authenticate/');
   await page.waitForURL(/amazoncognito\.com/);
-  await page.locator('input[name="username"], input[type="email"], input[type="text"]').first().fill(email!);
-  await page.locator('input[name="password"], input[type="password"]').first().fill(password!);
-  await page.getByRole('button', { name: /sign in|log in/i }).first().click();
-  // Back on Label Studio, authenticated (projects page / no login form).
-  await page.waitForURL(/dev-spectrum\.tdwanalytics\.co/, { timeout: 30_000 });
+  await page.locator('input[name="username"]:visible').first().fill(email!);
+  await page.locator('input[name="password"]:visible').first().fill(password!);
+  await page
+    .locator('input[name="signInSubmitButton"]:visible, input[type="Submit"]:visible, button[type="submit"]:visible')
+    .first()
+    .click();
+  // Back on Label Studio, authenticated (NOT bounced to the login form).
+  await page.waitForURL(/dev-spectrum\.tdwanalytics\.co\/(?!user\/login)/, { timeout: 30_000 });
   await expect(page).not.toHaveURL(/\/user\/login\//);
+  const who = await page.request.get('/api/current-user/whoami');
+  expect(who.status()).toBe(200);
 });
