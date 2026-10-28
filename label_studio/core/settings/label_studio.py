@@ -26,7 +26,19 @@ DEBUG_PROPAGATE_EXCEPTIONS = get_bool_env('DEBUG_PROPAGATE_EXCEPTIONS', False)
 
 SESSION_COOKIE_SECURE = get_bool_env('SESSION_COOKIE_SECURE', False)
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
+# TDW: SESSION_ENGINE is env-overridable in the fork. Upstream hardcodes
+# signed_cookies, but that is incompatible with mozilla-django-oidc, which
+# reloads request.session from the store mid-callback — with signed_cookies
+# there is no store, so auth.login()'s keys are lost from the serialized cookie
+# and the user bounces back to /user/login/. For Cognito SSO we default to the
+# DB-backed session store (the django_session table already exists via Django's
+# migrations). Override with SESSION_ENGINE env if needed.
+SESSION_ENGINE = get_env(
+    'SESSION_ENGINE',
+    'django.contrib.sessions.backends.db'
+    if get_bool_env('TDW_OIDC_ENABLED', False)
+    else 'django.contrib.sessions.backends.signed_cookies',
+)
 
 SENTRY_DSN = get_env('SENTRY_DSN', 'https://68b045ab408a4d32a910d339be8591a4@o227124.ingest.sentry.io/5820521')
 SENTRY_ENVIRONMENT = get_env('SENTRY_ENVIRONMENT', 'opensource')
