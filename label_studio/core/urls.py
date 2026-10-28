@@ -115,8 +115,11 @@ urlpatterns = [
 # --- TDW OIDC (begin): Cognito SSO routes + mini roles admin page ---
 if getattr(settings, 'TDW_OIDC_ENABLED', False):
     from users.tdw_roles_view import tdw_roles_view
+    from core.auth.tdw_oidc_views import TDWOIDCCallbackView
 
     urlpatterns += [
+        # custom callback FIRST so it wins over mozilla's generic callback
+        path('oidc/callback/', TDWOIDCCallbackView.as_view(), name='oidc_authentication_callback'),
         path('oidc/', include('mozilla_django_oidc.urls')),
         path('tdw/roles/', tdw_roles_view, name='tdw-roles'),
     ]
