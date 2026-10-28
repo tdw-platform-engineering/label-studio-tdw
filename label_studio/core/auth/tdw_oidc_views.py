@@ -71,8 +71,13 @@ class TDWOIDCCallbackView(OIDCAuthenticationCallbackView):
         return resp
 
     def login_success(self):
-        # self.user is set by the parent after a successful auth()
+        # self.user is set by the parent after a successful auth().
+        from django.contrib import auth
+
         user = self.user
+
+        # Set the active organization (LS pages require it), mirroring
+        # users.views.user_login.
         try:
             from organizations.models import Organization
 
@@ -85,22 +90,29 @@ class TDWOIDCCallbackView(OIDCAuthenticationCallbackView):
 
         response = super().login_success()
 
-        # keep the session for the browser lifetime (LS default behavior)
+        # CRITICAL (signed_cookies sessions): mozilla-django-oidc replaces the
+        # request.session object mid-request to "reload" it from the store. With
+        # Label Studio's SESSION_ENGINE=signed_cookies there is NO store, so the
+        # auth keys written by auth.login() can be lost from the session object
+        # that is finally serialized into the cookie (observed: the post-login
+        # cookie had `uid`/`organization_pk` but NOT `_auth_user_id`). Re-assert
+        # the login on the CURRENT request.session, exactly like LS's native
+        # user_login (ModelBackend path), so _auth_user_id/_backend/_hash are
+        # guaranteed to be in the cookie that goes back to the browser.
         try:
-            self.request.session.setdefault('keep_me_logged_in', True)
+            auth.login(self.request, user, backend='django.contrib.auth.backends.ModelBackend')
+            self.request.session['keep_me_logged_in'] = True
             self.request.session.modified = True
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning('TDW OIDC: re-login failed: %s', exc)
 
-        logger.info(
-            'TDW OIDC login_success: user=%s authed=%s active_org=%s backend=%s session_key=%s redirect=%s',
+        import sys as _sys
+        print('TDWDIAG login_success: user=%s authed=%s auth_user_id=%s backend=%s' % (
             getattr(user, 'email', None),
             getattr(user, 'is_authenticated', None),
-            getattr(user, 'active_organization_id', None),
+            self.request.session.get('_auth_user_id'),
             self.request.session.get('_auth_user_backend'),
-            self.request.session.session_key,
-            getattr(response, 'url', None),
-        )
+        ), file=_sys.stderr, flush=True)
         return response
 
     def get_success_url(self):
