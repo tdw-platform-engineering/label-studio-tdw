@@ -1,83 +1,118 @@
 """
-TDW OIDC callback view (fork-only).
+TDW OIDC views (fork-only) — AWS Cognito SSO for Label Studio.
 
-Why this exists
----------------
-Label Studio 1.23.x resolves the request user for browser page views through
-Django's standard session auth (SessionMiddleware + AuthenticationMiddleware);
-its native login (`users.views.user_login`) calls
-`login(request, user, backend='django.contrib.auth.backends.ModelBackend')` and
-ALSO sets `user.active_organization_id`. The bare
-`mozilla_django_oidc` callback logs the user in with the OIDC backend path and
-does NOT set `active_organization`, which left the post-login redirect bouncing
-back to `/user/login/` (session present but the app treated the user as not
-fully logged in).
+Why self-contained
+------------------
+Label Studio 1.23.x resolves the browser page-view user through Django's session
+auth. The stock `mozilla_django_oidc` callback reassigns `request.session`
+mid-request (to reload from a store) and logs in with the OIDC backend; combined
+with LS's middleware + session engine this lost the auth keys from the session
+that actually gets persisted, so every SSO login bounced back to /user/login/.
 
-This subclass keeps all of mozilla's code-exchange / token-verify / role-mapping
-(via TDWCognitoOIDCBackend) and only customizes `login_success()` so the session
-is established EXACTLY like LS's native login:
-  * active_organization is set (LS pages expect it),
-  * the session is persisted,
-  * verbose logging so failures are diagnosable in CloudWatch.
+So the callback here does the OAuth2 Authorization-Code exchange itself and then
+performs ONE clean `django.contrib.auth.login(..., backend=ModelBackend)` on the
+live `request.session` — exactly like LS's native `users.views.user_login`. No
+session-object juggling. The authenticate view still stores state/nonce in the
+session (reusing mozilla's request view).
 
-TDW-owned module; only reachable when settings.TDW_OIDC_ENABLED is true.
+Role mapping / user creation still happen in TDWCognitoOIDCBackend.authenticate,
+which we call with the exchanged tokens.
+
+TDW-owned module; only wired when settings.TDW_OIDC_ENABLED is true.
 """
 import logging
 
+import requests
 from django.conf import settings
-from mozilla_django_oidc.views import (
-    OIDCAuthenticationCallbackView,
-    OIDCAuthenticationRequestView,
-)
+from django.contrib import auth
+from django.http import HttpResponseRedirect
+from django.shortcuts import resolve_url
+from django.urls import reverse
+from mozilla_django_oidc.utils import absolutify
+from mozilla_django_oidc.views import OIDCAuthenticationRequestView
 
 logger = logging.getLogger(__name__)
 
 
 class TDWOIDCAuthenticateView(OIDCAuthenticationRequestView):
+    """Reuse mozilla's authorize-request view (stores state/nonce in session)."""
+
+
+class TDWOIDCCallbackView(OIDCAuthenticationRequestView):
+    """
+    Self-contained Authorization-Code callback. We intentionally subclass the
+    *request* view only to inherit get_settings(); the logic here is ours.
+    """
+
+    http_method_names = ['get']
+
+    @staticmethod
+    def _s(attr, default=None):
+        from mozilla_django_oidc.utils import import_from_settings
+
+        return import_from_settings(attr, default)
+
     def get(self, request):
-        response = super().get(request)
+        failure = resolve_url(self._s('LOGIN_REDIRECT_URL_FAILURE', '/user/login/'))
+        success = resolve_url(self._s('LOGIN_REDIRECT_URL', '/'))
+
+        code = request.GET.get('code')
+        state = request.GET.get('state')
+        if not code or not state:
+            logger.warning('TDW OIDC callback: missing code/state')
+            return HttpResponseRedirect(failure)
+
+        states = request.session.get('oidc_states') or {}
+        if state not in states:
+            logger.warning('TDW OIDC callback: state not in session (session lost across IdP redirect)')
+            return HttpResponseRedirect(failure)
+        nonce = states[state].get('nonce')
+        code_verifier = states[state].get('code_verifier')
+        # consume the state (replay protection)
+        del states[state]
+        request.session['oidc_states'] = states
+        request.session.modified = True
+
+        # Exchange the code for tokens directly.
+        token_endpoint = self._s('OIDC_OP_TOKEN_ENDPOINT')
+        client_id = self._s('OIDC_RP_CLIENT_ID')
+        client_secret = self._s('OIDC_RP_CLIENT_SECRET')
+        redirect_uri = absolutify(request, reverse('oidc_authentication_callback'))
+        data = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': redirect_uri,
+        }
+        if code_verifier:
+            data['code_verifier'] = code_verifier
         try:
-            logger.info(
-                'TDW OIDC authenticate: session_key=%s oidc_states=%s',
-                request.session.session_key,
-                list((request.session.get('oidc_states') or {}).keys()),
+            resp = requests.post(
+                token_endpoint,
+                data=data,
+                auth=(client_id, client_secret),
+                timeout=self._s('OIDC_TIMEOUT', 15),
             )
-        except Exception as exc:  # pragma: no cover
-            logger.warning('TDW OIDC authenticate log failed: %s', exc)
-        return response
-
-
-class TDWOIDCCallbackView(OIDCAuthenticationCallbackView):
-    def dispatch(self, request, *args, **kwargs):
-        import sys as _sys
-        print('TDWDIAG callback dispatch hit path=%s GET=%s' % (request.path, dict(request.GET)), file=_sys.stderr, flush=True)
-        return super().dispatch(request, *args, **kwargs)
-
-    def get(self, request):
-        import sys as _sys
-        try:
-            print('TDWDIAG callback get: session_key=%s has_oidc_states=%s states=%s cookie=%s' % (
-                request.session.session_key,
-                'oidc_states' in request.session,
-                list((request.session.get('oidc_states') or {}).keys()),
-                'sessionid' in request.COOKIES,
-            ), file=_sys.stderr, flush=True)
+            resp.raise_for_status()
+            token_info = resp.json()
         except Exception as exc:
-            print('TDWDIAG callback get log failed: %r' % exc, file=_sys.stderr, flush=True)
-        resp = super().get(request)
-        print('TDWDIAG callback get done -> %s authed=%s' % (
-            getattr(resp, 'url', resp), getattr(getattr(self, 'user', None), 'is_authenticated', None),
-        ), file=_sys.stderr, flush=True)
-        return resp
+            logger.error('TDW OIDC callback: token exchange failed: %s', exc)
+            return HttpResponseRedirect(failure)
 
-    def login_success(self):
-        # self.user is set by the parent after a successful auth().
-        from django.contrib import auth
+        # Authenticate via our backend (verifies id_token, maps role, creates user).
+        user = auth.authenticate(
+            request,
+            nonce=nonce,
+            code_verifier=code_verifier,
+            # pass tokens so the backend doesn't re-exchange the (now consumed) code
+            id_token=token_info.get('id_token'),
+            access_token=token_info.get('access_token'),
+            tdw_token_info=token_info,
+        )
+        if not user or not user.is_active:
+            logger.warning('TDW OIDC callback: authenticate returned no active user')
+            return HttpResponseRedirect(failure)
 
-        user = self.user
-
-        # Set the active organization (LS pages require it), mirroring
-        # users.views.user_login.
+        # Set active org (LS pages require it) then ONE clean session login.
         try:
             from organizations.models import Organization
 
@@ -85,35 +120,16 @@ class TDWOIDCCallbackView(OIDCAuthenticationCallbackView):
             if org is not None and user.active_organization_id != org.pk:
                 user.active_organization_id = org.pk
                 user.save(update_fields=['active_organization'])
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning('TDW OIDC: could not set active_organization: %s', exc)
+        except Exception as exc:  # pragma: no cover
+            logger.warning('TDW OIDC: set active_organization failed: %s', exc)
 
-        response = super().login_success()
+        auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        request.session['keep_me_logged_in'] = True
+        request.session.modified = True
 
-        # CRITICAL (signed_cookies sessions): mozilla-django-oidc replaces the
-        # request.session object mid-request to "reload" it from the store. With
-        # Label Studio's SESSION_ENGINE=signed_cookies there is NO store, so the
-        # auth keys written by auth.login() can be lost from the session object
-        # that is finally serialized into the cookie (observed: the post-login
-        # cookie had `uid`/`organization_pk` but NOT `_auth_user_id`). Re-assert
-        # the login on the CURRENT request.session, exactly like LS's native
-        # user_login (ModelBackend path), so _auth_user_id/_backend/_hash are
-        # guaranteed to be in the cookie that goes back to the browser.
-        try:
-            auth.login(self.request, user, backend='django.contrib.auth.backends.ModelBackend')
-            self.request.session['keep_me_logged_in'] = True
-            self.request.session.modified = True
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning('TDW OIDC: re-login failed: %s', exc)
-
-        import sys as _sys
-        print('TDWDIAG login_success: user=%s authed=%s auth_user_id=%s backend=%s' % (
-            getattr(user, 'email', None),
-            getattr(user, 'is_authenticated', None),
-            self.request.session.get('_auth_user_id'),
-            self.request.session.get('_auth_user_backend'),
-        ), file=_sys.stderr, flush=True)
-        return response
-
-    def get_success_url(self):
-        return getattr(settings, 'LOGIN_REDIRECT_URL', '/') or '/'
+        logger.info(
+            'TDW OIDC login OK: user=%s role_org=%s auth_user_id=%s',
+            user.email, getattr(user, 'active_organization_id', None),
+            request.session.get('_auth_user_id'),
+        )
+        return HttpResponseRedirect(success)
