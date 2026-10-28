@@ -25,12 +25,43 @@ TDW-owned module; only reachable when settings.TDW_OIDC_ENABLED is true.
 import logging
 
 from django.conf import settings
-from mozilla_django_oidc.views import OIDCAuthenticationCallbackView
+from mozilla_django_oidc.views import (
+    OIDCAuthenticationCallbackView,
+    OIDCAuthenticationRequestView,
+)
 
 logger = logging.getLogger(__name__)
 
 
+class TDWOIDCAuthenticateView(OIDCAuthenticationRequestView):
+    def get(self, request):
+        response = super().get(request)
+        try:
+            logger.info(
+                'TDW OIDC authenticate: session_key=%s oidc_states=%s',
+                request.session.session_key,
+                list((request.session.get('oidc_states') or {}).keys()),
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning('TDW OIDC authenticate log failed: %s', exc)
+        return response
+
+
 class TDWOIDCCallbackView(OIDCAuthenticationCallbackView):
+    def get(self, request):
+        try:
+            logger.info(
+                'TDW OIDC callback entry: session_key=%s has_oidc_states=%s states=%s cookie_present=%s GET=%s',
+                request.session.session_key,
+                'oidc_states' in request.session,
+                list((request.session.get('oidc_states') or {}).keys()),
+                'sessionid' in request.COOKIES,
+                dict(request.GET),
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning('TDW OIDC callback entry log failed: %s', exc)
+        return super().get(request)
+
     def login_success(self):
         # self.user is set by the parent after a successful auth()
         user = self.user
