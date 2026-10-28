@@ -966,20 +966,26 @@ if TDW_OIDC_ENABLED:
     OIDC_RP_CLIENT_SECRET = get_env('OIDC_RP_CLIENT_SECRET', '')
     OIDC_RP_SIGN_ALGO = get_env('OIDC_RP_SIGN_ALGO', 'RS256')
 
-    # e.g. dev-spectrum-platform.auth.us-east-1.amazoncognito.com
+    # Cognito region + user pool id (needed to build the ISSUER URL for JWKS).
+    TDW_COGNITO_REGION = get_env('TDW_COGNITO_REGION', get_env('AWS_DEFAULT_REGION', 'us-east-1'))
+    TDW_COGNITO_USER_POOL_ID = get_env('TDW_COGNITO_USER_POOL_ID', '')
+
+    # Hosted-UI domain (authorize/token/userInfo live here), e.g.
+    # dev-spectrum-platform.auth.us-east-1.amazoncognito.com
     OIDC_OP_DOMAIN = get_env('OIDC_OP_DOMAIN', '').replace('https://', '').strip('/')
     OIDC_OP_AUTHORIZATION_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/oauth2/authorize'
     OIDC_OP_TOKEN_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/oauth2/token'
     OIDC_OP_USER_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/oauth2/userInfo'
-    OIDC_OP_JWKS_ENDPOINT = f'https://{OIDC_OP_DOMAIN}/.well-known/jwks.json'
+
+    # JWKS + issuer live on the Cognito IDP (issuer) domain, NOT the hosted-UI
+    # domain — Cognito returns 404 for jwks.json on the hosted-UI domain.
+    _tdw_cognito_issuer = f'https://cognito-idp.{TDW_COGNITO_REGION}.amazonaws.com/{TDW_COGNITO_USER_POOL_ID}'
+    OIDC_OP_JWKS_ENDPOINT = f'{_tdw_cognito_issuer}/.well-known/jwks.json'
 
     OIDC_RP_SCOPES = get_env('OIDC_RP_SCOPES', 'openid email profile')
     LOGIN_REDIRECT_URL = '/'
     LOGOUT_REDIRECT_URL = '/'
     OIDC_STORE_ID_TOKEN = True
-
-    TDW_COGNITO_REGION = get_env('TDW_COGNITO_REGION', get_env('AWS_DEFAULT_REGION', 'us-east-1'))
-    TDW_COGNITO_USER_POOL_ID = get_env('TDW_COGNITO_USER_POOL_ID', '')
 
     # cognito:groups -> TDW role; JSON object, highest-privilege group wins.
     try:
