@@ -109,6 +109,17 @@ class CommonMiddlewareAppendSlashWithoutRedirect(CommonMiddleware):
 
 class SetSessionUIDMiddleware(CommonMiddleware):
     def process_request(self, request):
+        # TDW: when Cognito SSO is enabled, do NOT create/write a brand-new
+        # session on anonymous requests. LS fires several parallel anonymous
+        # requests (analytics /__lsa/, /heidi-tips, static) right after the OIDC
+        # callback redirect; each was creating+saving a fresh session and
+        # shipping a Set-Cookie, which RACED with and clobbered the authenticated
+        # session cookie just set by the callback — so the post-login page saw an
+        # anonymous session and bounced back to /user/login/. Only stamp `uid`
+        # onto sessions that already have data (i.e. real/authenticated ones).
+        if getattr(settings, 'TDW_OIDC_ENABLED', False):
+            if not request.session.session_key and not getattr(request.user, 'is_authenticated', False):
+                return
         if 'uid' not in request.session:
             request.session['uid'] = str(uuid4())
 
