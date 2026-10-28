@@ -49,6 +49,35 @@ def _extract_groups(claims):
 
 
 class TDWCognitoOIDCBackend(OIDCAuthenticationBackend):
+    def authenticate(self, request, **kwargs):
+        """
+        When our self-contained callback already exchanged the auth code for
+        tokens, it passes them via `tdw_token_info` so we don't re-POST the
+        (now consumed) code. Verify the id_token and build the user the same way
+        mozilla's base does, then reuse get_or_create_user.
+        """
+        token_info = kwargs.get('tdw_token_info')
+        if not token_info:
+            return super().authenticate(request, **kwargs)
+
+        self.request = request
+        id_token = token_info.get('id_token')
+        access_token = token_info.get('access_token')
+        nonce = kwargs.get('nonce')
+        try:
+            payload = self.verify_token(id_token, nonce=nonce)
+        except Exception as exc:
+            logger.warning('TDW OIDC: id_token verify failed: %s', exc)
+            return None
+        if not payload:
+            return None
+        self.store_tokens(access_token, id_token)
+        try:
+            return self.get_or_create_user(access_token, id_token, payload)
+        except Exception as exc:
+            logger.warning('TDW OIDC: get_or_create_user failed: %s', exc)
+            return None
+
     def get_userinfo(self, access_token, id_token, payload):
         """
         Merge the ID-token claims into the UserInfo result.
