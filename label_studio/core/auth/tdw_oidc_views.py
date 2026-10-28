@@ -48,19 +48,27 @@ class TDWOIDCAuthenticateView(OIDCAuthenticationRequestView):
 
 
 class TDWOIDCCallbackView(OIDCAuthenticationCallbackView):
+    def dispatch(self, request, *args, **kwargs):
+        import sys as _sys
+        print('TDWDIAG callback dispatch hit path=%s GET=%s' % (request.path, dict(request.GET)), file=_sys.stderr, flush=True)
+        return super().dispatch(request, *args, **kwargs)
+
     def get(self, request):
+        import sys as _sys
         try:
-            logger.info(
-                'TDW OIDC callback entry: session_key=%s has_oidc_states=%s states=%s cookie_present=%s GET=%s',
+            print('TDWDIAG callback get: session_key=%s has_oidc_states=%s states=%s cookie=%s' % (
                 request.session.session_key,
                 'oidc_states' in request.session,
                 list((request.session.get('oidc_states') or {}).keys()),
                 'sessionid' in request.COOKIES,
-                dict(request.GET),
-            )
-        except Exception as exc:  # pragma: no cover
-            logger.warning('TDW OIDC callback entry log failed: %s', exc)
-        return super().get(request)
+            ), file=_sys.stderr, flush=True)
+        except Exception as exc:
+            print('TDWDIAG callback get log failed: %r' % exc, file=_sys.stderr, flush=True)
+        resp = super().get(request)
+        print('TDWDIAG callback get done -> %s authed=%s' % (
+            getattr(resp, 'url', resp), getattr(getattr(self, 'user', None), 'is_authenticated', None),
+        ), file=_sys.stderr, flush=True)
+        return resp
 
     def login_success(self):
         # self.user is set by the parent after a successful auth()
