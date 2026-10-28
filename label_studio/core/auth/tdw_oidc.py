@@ -49,6 +49,29 @@ def _extract_groups(claims):
 
 
 class TDWCognitoOIDCBackend(OIDCAuthenticationBackend):
+    def get_userinfo(self, access_token, id_token, payload):
+        """
+        Merge the ID-token claims into the UserInfo result.
+
+        Cognito's /oauth2/userInfo endpoint does NOT return `cognito:groups`
+        (that claim lives only in the ID token). The default mozilla-django-oidc
+        flow maps the user from UserInfo, so groups would be missing and every
+        user would fall back to the default role. We merge the verified ID-token
+        `payload` (which includes `cognito:groups`, email, name) over the UserInfo
+        so our role mapping sees the groups.
+        """
+        userinfo = super().get_userinfo(access_token, id_token, payload)
+        if isinstance(payload, dict):
+            merged = dict(userinfo or {})
+            for k in ('cognito:groups', 'groups', 'email', 'given_name', 'family_name', 'name'):
+                if payload.get(k) is not None and merged.get(k) in (None, '', []):
+                    merged[k] = payload[k]
+            # cognito:groups: prefer the ID-token value outright (UserInfo lacks it)
+            if payload.get('cognito:groups') is not None:
+                merged['cognito:groups'] = payload['cognito:groups']
+            return merged
+        return userinfo
+
     def filter_users_by_claims(self, claims):
         email = (claims.get('email') or '').lower()
         if not email:
