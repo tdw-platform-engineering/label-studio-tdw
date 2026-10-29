@@ -26,6 +26,8 @@ COPY label_studio/ /label-studio/label_studio/
 # TDW seed drop-in: runs on app boot after upstream's 30-run-db-migrations.sh.
 COPY deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh /label-studio/deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh
 RUN chmod +x /label-studio/deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh
+COPY deploy/docker-entrypoint.d/app/33-tdw-seed-project.sh /label-studio/deploy/docker-entrypoint.d/app/33-tdw-seed-project.sh
+RUN chmod +x /label-studio/deploy/docker-entrypoint.d/app/33-tdw-seed-project.sh
 
 # Keep upstream's ENTRYPOINT/CMD/WORKDIR/USER. The migrate stage + runtime run
 # the normal Label Studio bootstrap, which applies our migration 0007 too.
