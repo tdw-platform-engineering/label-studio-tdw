@@ -57,8 +57,16 @@ class BaseHTTPAPI(object):
         self._url = url
         self._timeout = timeout or TIMEOUT_DEFAULT
         self._connection_timeout = connection_timeout or CONNECTION_TIMEOUT
-        self._headers = headers or {}
+        self._headers = dict(headers or {})
         self._auth_method = auth_method
+
+        # TDW patch: API key auth. "Authorization" carries "Bearer <key>"; any other header carries the raw key.
+        self._secret_header = None
+        if auth_method == 'API_KEY' and kwargs.get('api_key'):
+            header = (kwargs.get('api_key_header') or 'Authorization').strip()
+            key = kwargs['api_key']
+            self._headers[header] = f'Bearer {key}' if header.lower() == 'authorization' else key
+            self._secret_header = header
 
         # TODO basic auth parameters must be required for auth_method == 'basic'
         self._basic_auth = (kwargs.get('basic_auth_user'), kwargs.get('basic_auth_pass'))
@@ -153,7 +161,8 @@ class MLApi(BaseHTTPAPI):
         assert method in ('POST', 'GET')
         url = self._get_url(url_suffix)
         request = request or {}
-        headers = dict(self.http.headers)
+        # never hand the API key back in results (they can be logged or returned to the UI)
+        headers = {k: ('********' if k == self._secret_header else v) for k, v in self.http.headers.items()}
 
         response = None
         try:
