@@ -33,6 +33,7 @@ class MLBackendState(models.TextChoices):
 class MLBackendAuth(models.TextChoices):
     NONE = 'NONE', _('None')
     BASIC_AUTH = 'BASIC_AUTH', _('Basic Auth')
+    API_KEY = 'API_KEY', _('API Key')  # TDW: key sent in a request header
 
 
 class MLBackend(models.Model):
@@ -86,6 +87,24 @@ class MLBackend(models.Model):
         null=True,
         default='',
         help_text='HTTP Basic Auth password',
+    )
+
+    # TDW patch: API key authentication for the ML backend.
+    api_key = models.TextField(
+        _('api key'),
+        blank=True,
+        null=True,
+        default='',
+        help_text='API key sent to the ML backend (auth_method API_KEY)',
+    )
+
+    api_key_header = models.TextField(
+        _('api key header'),
+        blank=True,
+        null=True,
+        default='Authorization',
+        help_text='Header that carries the API key. With "Authorization" the value is sent as "Bearer <key>", '
+        'with any other header (for example X-API-Key) the key is sent as is',
     )
 
     description = models.TextField(
@@ -172,7 +191,12 @@ class MLBackend(models.Model):
 
     def healthcheck(self):
         return self.healthcheck_(
-            self.url, self.auth_method, basic_auth_user=self.basic_auth_user, basic_auth_pass=self.basic_auth_pass
+            self.url,
+            self.auth_method,
+            basic_auth_user=self.basic_auth_user,
+            basic_auth_pass=self.basic_auth_pass,
+            api_key=self.api_key,
+            api_key_header=self.api_key_header,
         )
 
     def setup(self):
@@ -183,6 +207,8 @@ class MLBackend(models.Model):
             extra_params=self.extra_params,
             basic_auth_user=self.basic_auth_user,
             basic_auth_pass=self.basic_auth_pass,
+            api_key=self.api_key,
+            api_key_header=self.api_key_header,
         )
 
     @property
@@ -193,6 +219,8 @@ class MLBackend(models.Model):
             auth_method=self.auth_method,
             basic_auth_user=self.basic_auth_user,
             basic_auth_pass=self.basic_auth_pass,
+            api_key=self.api_key,
+            api_key_header=self.api_key_header,
         )
 
     @property
@@ -423,6 +451,8 @@ class MLBackend(models.Model):
             self.auth_method,
             basic_auth_user=self.basic_auth_user,
             basic_auth_pass=self.basic_auth_pass,
+            api_key=self.api_key,
+            api_key_header=self.api_key_header,
         )
 
 

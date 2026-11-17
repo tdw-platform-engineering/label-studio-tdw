@@ -45,7 +45,7 @@ _ml_backend_schema = {
         'auth_method': {
             'type': 'string',
             'description': 'Auth method',
-            'enum': ['NONE', 'BASIC_AUTH'],
+            'enum': ['NONE', 'BASIC_AUTH', 'API_KEY'],
         },
         'basic_auth_user': {
             'type': 'string',
@@ -54,6 +54,14 @@ _ml_backend_schema = {
         'basic_auth_pass': {
             'type': 'string',
             'description': 'Basic auth password',
+        },
+        'api_key': {
+            'type': 'string',
+            'description': 'API key sent to the ML backend (auth_method API_KEY)',
+        },
+        'api_key_header': {
+            'type': 'string',
+            'description': 'Header that carries the API key (default Authorization, sent as "Bearer <key>")',
         },
         'extra_params': {
             'type': 'object',

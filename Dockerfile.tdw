@@ -1,15 +1,42 @@
-# Dockerfile.tdw — FAST overlay build for the TDW Label Studio fork.
+# Dockerfile.tdw — overlay build for the TDW Label Studio fork.
 #
-# We change ONLY Python backend files (the Cognito OIDC patch) — NO frontend/web
-# changes. So instead of rebuilding Label Studio from source (node/NX frontend +
-# poetry compiling C extensions on Alpine ARM = 15-30 min), we layer our patched
-# files onto the already-built upstream image. Build time: seconds.
+# Layers our patched files onto the already-built upstream image (the full upstream build
+# is 15-30 min: node/NX frontend + poetry on Alpine ARM). Two parts:
+#   1. Backend (Python): COPY label_studio/ — always.
+#   2. Frontend (React): the stage `frontend` rebuilds the web bundle ONLY because the fork
+#      patches web/ (ML backend "API Key" form). It is the slow part (~15+ min). If the fork
+#      stops patching web/, delete this stage and the COPY --from=frontend line to get the
+#      seconds-long overlay build back.
 #
 # BASE_IMAGE defaults to a mirror in the client's OWN ECR (populated once from
-# docker.io/heartexlabs/label-studio:<ver>) so in-VPC CodeBuild doesn't depend on
-# Docker Hub (rate limits) — override per client/env. The upstream tag MUST match
-# the branch base (PATCHES.md records it: currently 1.23.2).
+# docker.io/heartexlabs/label-studio:<ver>) so in-VPC CodeBuild does not depend on Docker
+# Hub (rate limits) — override per client/env. The upstream tag MUST match the branch
+# base (PATCHES.md records it: currently 1.23.2).
 ARG BASE_IMAGE=heartexlabs/label-studio:1.23.2
+ARG NODE_VERSION=22
+
+################################ Stage: frontend (rebuild the web bundle with our patch)
+# Node image from the ECR Public mirror of Docker official images (no Docker Hub rate limit).
+FROM public.ecr.aws/docker/library/node:${NODE_VERSION}-alpine AS frontend
+ENV BUILD_NO_SERVER=true \
+    BUILD_NO_HASH=true \
+    BUILD_NO_CHUNKS=true \
+    BUILD_MODULE=true \
+    NODE_ENV=production \
+    NODE_OPTIONS="--max-old-space-size=6144"
+
+WORKDIR /label-studio/web
+RUN apk add --no-cache build-base pkgconfig cairo-dev giflib-dev libjpeg-turbo-dev libpng-dev pango-dev git python3
+
+COPY web/package.json web/yarn.lock ./
+COPY web/tools tools
+RUN yarn install --prefer-offline --no-progress --pure-lockfile --frozen-lockfile --ignore-engines --non-interactive --production=false
+
+COPY web/ .
+COPY pyproject.toml ../pyproject.toml
+RUN yarn run build
+
+################################ Stage: final image
 FROM ${BASE_IMAGE}
 
 # The upstream image runs Poetry; its venv is at /label-studio/.venv and the app
@@ -18,10 +45,13 @@ FROM ${BASE_IMAGE}
 USER root
 RUN /label-studio/.venv/bin/pip install --no-cache-dir "mozilla-django-oidc>=4.0.0,<5.0.0"
 
-# Overlay our patched backend files on top of the upstream app. (Backend-only:
-# settings, OIDC backend, role model + migration, /tdw/roles view+template, seed
-# command, login template, context processor.) Nothing else in the image changes.
+# Overlay our patched backend files on top of the upstream app. (settings, OIDC backend,
+# role model + migration, /tdw/roles view+template, seed command, login template, context
+# processor, ML backend API key auth + migration.)
 COPY label_studio/ /label-studio/label_studio/
+
+# Rebuilt web bundle (merges over the base image's web/dist; version.json files are kept).
+COPY --chown=1001:0 --from=frontend /label-studio/web/dist /label-studio/web/dist
 
 # TDW seed drop-in: runs on app boot after upstream's 30-run-db-migrations.sh.
 COPY deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh /label-studio/deploy/docker-entrypoint.d/app/32-tdw-seed-users.sh
@@ -30,4 +60,4 @@ COPY deploy/docker-entrypoint.d/app/33-tdw-seed-project.sh /label-studio/deploy/
 RUN chmod +x /label-studio/deploy/docker-entrypoint.d/app/33-tdw-seed-project.sh
 
 # Keep upstream's ENTRYPOINT/CMD/WORKDIR/USER. The migrate stage + runtime run
-# the normal Label Studio bootstrap, which applies our migration 0007 too.
+# the normal Label Studio bootstrap, which applies our migrations too.

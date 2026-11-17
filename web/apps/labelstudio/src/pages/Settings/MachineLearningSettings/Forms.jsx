@@ -37,6 +37,7 @@ const CustomBackendForm = ({ action, backend, project, onSubmit }) => {
           options={[
             { label: "No Authentication", value: "NONE" },
             { label: "Basic Authentication", value: "BASIC_AUTH" },
+            { label: "API Key", value: "API_KEY" },
           ]}
           value={selectedAuthMethod}
           onChange={setAuthMethod}
@@ -50,6 +51,17 @@ const CustomBackendForm = ({ action, backend, project, onSubmit }) => {
             <Input name="basic_auth_pass" label="Basic auth pass" type="password" placeholder="********" />
           ) : (
             <Input name="basic_auth_pass" label="Basic auth pass" type="password" />
+          )}
+        </Form.Row>
+      )}
+
+      {(backend?.auth_method === "API_KEY" || selectedAuthMethod === "API_KEY") && (
+        <Form.Row columnCount={2}>
+          <Input name="api_key_header" label="API key header" placeholder="Authorization (sent as Bearer) or X-API-Key" />
+          {backend?.api_key_is_set ? (
+            <Input name="api_key" label="API key" type="password" placeholder="********" />
+          ) : (
+            <Input name="api_key" label="API key" type="password" />
           )}
         </Form.Row>
       )}
