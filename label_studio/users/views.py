@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.http import Http404
 from django.shortcuts import redirect, render, reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from organizations.forms import OrganizationSignupForm
@@ -39,6 +40,9 @@ def logout(request):
 @enforce_csrf_checks
 def user_signup(request):
     """Sign up page"""
+    # TDW: no native sign-up under SSO (GET and POST, invite token or not).
+    if getattr(settings, 'TDW_DISABLE_NATIVE_SIGNUP', False):
+        raise Http404()
     user = request.user
     next_page = request.GET.get('next')
     token = request.GET.get('token')

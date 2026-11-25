@@ -3,6 +3,7 @@
 import logging
 
 from core.permissions import ViewClassPermission, all_permissions
+from django.conf import settings
 from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -212,6 +213,9 @@ class UserAPI(viewsets.ModelViewSet):
         return super(UserAPI, self).list(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
+        # TDW: under SSO users are created by the IdP login only, never through the API.
+        if getattr(settings, 'TDW_DISABLE_NATIVE_SIGNUP', False):
+            raise PermissionDenied('User creation is disabled: accounts come from SSO.')
         return super(UserAPI, self).create(request, *args, **kwargs)
 
     def perform_create(self, serializer):

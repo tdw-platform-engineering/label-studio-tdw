@@ -957,6 +957,14 @@ import json as _tdw_json
 
 TDW_OIDC_ENABLED = get_bool_env('TDW_OIDC_ENABLED', False)
 
+# SECURITY (TDW): with SSO on, accounts come ONLY from the IdP. Native sign-up
+# (/user/signup/, with or without an invite token) and user creation through
+# POST /api/users are closed. Opt out with TDW_DISABLE_NATIVE_SIGNUP=false.
+# Incident 2026-11-25: external accounts signed up through /user/signup/.
+TDW_DISABLE_NATIVE_SIGNUP = TDW_OIDC_ENABLED and get_bool_env('TDW_DISABLE_NATIVE_SIGNUP', True)
+if TDW_DISABLE_NATIVE_SIGNUP:
+    DISABLE_SIGNUP_WITHOUT_LINK = True  # also hides the "Sign up" link on the login page
+
 if TDW_OIDC_ENABLED:
     AUTHENTICATION_BACKENDS = list(AUTHENTICATION_BACKENDS) + [
         'core.auth.tdw_oidc.TDWCognitoOIDCBackend',
